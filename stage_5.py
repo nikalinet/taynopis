@@ -110,7 +110,7 @@ while True:
 
         print(f"{record['action']}: {record['result']}")
         letters = sum(1 for ch in text if ch in low or ch in up)
-        print(f"Букв сдвинуто: {letters}, прочих знаков не тронуто: {len(text) - letters}")
+        print(f"Ворочено буквиц: {letters}, а прочей мелочи не тронуто: {len(text) - letters}")
 
         history.append(record)
         counts[action] += 1
