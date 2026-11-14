@@ -1,4 +1,9 @@
-# «Тайнопись» - этап 6
+"""«Тайнопись» - этап 6: рефакторинг проекта в функции.
+
+Логика (проверки, расчёт, отбор) получает данные аргументами и отдаёт
+результат через return. Интерфейс (меню, серия, показ) спрашивает через
+input и печатает через print.
+"""
 
 LOW = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 UP = LOW.upper()
@@ -9,28 +14,31 @@ MODE_NAMES = ("Откланяться", "Утаённое", "Явленное")
 
 MENU = "1 - утаить, 2 - явить, 3 - летопись, 4 - отыскать, 0 - откланяться"
 
+# Предел серии за один раз: защита от случайного ввода вроде 100000
+MAX_SERIES = 100
 
-#Логика: без input и print, результат через return
+
+# ---------- Логика: без input и print, результат через return ----------
 
 def is_int(value):
-    #Проверяет, что строка — целое число, допускается один минус впереди.
+    """Проверяет, что строка - целое число, допускается один минус впереди."""
     return value.removeprefix("-").isdigit()
 
 
 def is_count(value):
-    #Проверяет, что строка - целое число больше нуля.
+    """Проверяет, что строка - целое число больше нуля."""
     return value.isdigit() and int(value) > 0
 
 
 def caesar(text, k):
-    #Сдвигает русские буквы на k позиций, сохраняя регистр.
+    """Сдвигает русские буквы на k позиций, сохраняя регистр."""
     k %= ALPHABET_SIZE
     table = str.maketrans(LOW + UP, LOW[k:] + LOW[:k] + UP[k:] + UP[:k])
     return text.translate(table)
 
 
 def make_record(mode, text, shift):
-    #Собирает запись истории: режим 1 - сдвиг вперёд, режим 2 - назад.
+    """Собирает запись летописи: режим 1 - сдвиг вперёд, режим 2 - назад."""
     k = shift if mode == 1 else -shift
     record = {"action": MODE_NAMES[mode], "source": text, "shift": shift, "result": ""}
     record["result"] = caesar(text, k)
@@ -38,19 +46,19 @@ def make_record(mode, text, shift):
 
 
 def count_letters(text):
-    #Возвращает пару: сколько в тексте букв и сколько прочих знаков.
+    """Возвращает пару: сколько в тексте букв и сколько прочих знаков."""
     letters = sum(1 for ch in text if ch in LOW or ch in UP)
     return letters, len(text) - letters
 
 
 def shift_stats(history):
-    #Возвращает минимум, максимум, список по возрастанию и число разных сдвигов.
+    """Возвращает минимум, максимум, список по возрастанию и число разных сдвигов."""
     shifts = [record["shift"] for record in history]
     return min(shifts), max(shifts), sorted(shifts), len(set(shifts))
 
 
 def search_history(history, query):
-    #Отбирает записи, где запрос есть в исходном тексте или в результате.
+    """Отбирает записи, где запрос есть в исходном тексте или в результате."""
     found = []
     for record in history:
         if query in record["source"].lower() or query in record["result"].lower():
@@ -59,14 +67,18 @@ def search_history(history, query):
 
 
 def format_record(record):
-    #Собирает строку для показа одной записи.
+    """Собирает строку для показа одной записи."""
     return f"{record['action']}: «{record['source']}» -> «{record['result']}» (шаг {record['shift']})"
 
 
-#Интерфейс: спрашивает пользователя и печатает результат
+# ---------- Интерфейс: спрашивает пользователя и печатает ----------
 
 def ask_number(prompt, check, minimum=None, maximum=None):
-    # Спрашивает число, проверяет его и возвращает int или None, если ввод не подошёл.
+    """Спрашивает число и проверяет его.
+
+    Возвращает int или None, если ввод не прошёл проверку check
+    либо вышел за границы minimum / maximum.
+    """
     value = input(prompt).strip()
     if not check(value):
         return None
@@ -88,7 +100,7 @@ def ask_yes_no(prompt):
 
 
 def print_records(records):
-    """Печатает записи — общая функция для летописи и поиска."""
+    """Печатает записи - общая функция для летописи и поиска."""
     for record in records:
         print(format_record(record))
 
@@ -100,7 +112,7 @@ def skip_message(counts, message):
 
 
 def run_series(mode, n, history, counts):
-    #Пункты меню 1 и 2: серия из n писем. Дополняет history и counts, возвращает done.
+    """Пункты меню 1 и 2: серия из n писем. Дополняет history и counts."""
     done = 0
     for i in range(1, n + 1):
         print(f"--- Письмецо {i} из {n} ---")
@@ -125,11 +137,10 @@ def run_series(mode, n, history, counts):
         done += 1
 
     print(f"А как сочли: ворочено: {done} из {n}, а {n - done} не воротили — лежат, аки камни в омуте.")
-    return done
 
 
 def show_history(history, counts):
-    #Пункт меню 3: летопись, статистика сдвигов и счётчики.
+    """Пункт меню 3: летопись, статистика сдвигов и счётчики."""
     if len(history) == 0:
         print("Летопись не писана: ни былин, ни сказаний.")
         return
@@ -145,7 +156,7 @@ def show_history(history, counts):
 
 
 def run_search(history):
-    #Пункт меню 4: поиск по летописи без учёта регистра.
+    """Пункт меню 4: поиск по летописи без учёта регистра."""
     query = input("Чего изволишь отыскать в письменах минувшего? ").strip().lower()
     if query == "":
         print("Остолоп! Пустое слово не сыщешь — молви, чего искать")
@@ -183,9 +194,10 @@ def main():
             run_search(history)
             continue
 
-        n = ask_number("Сколько писем изволишь воротить? ", is_count)
+        n = ask_number("Сколько писем изволишь воротить? ", is_count, maximum=MAX_SERIES)
         if n is None:
-            print("Горе-писарь! Молви, сколько писем воротить, числом целым от единицы.")
+            print(f"Горе-писарь! Молви, сколько писем воротить, "
+                  f"числом целым от единицы до {MAX_SERIES}.")
             continue
 
         run_series(mode, n, history, counts)
