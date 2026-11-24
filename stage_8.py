@@ -19,17 +19,17 @@ DATA_FILE = "letopis.json"
 
 # Годится ли строка как пункт меню (цифра от 0 до 5)
 def is_mode(value):
-    return value.isdigit() and int(value) <= 5
+    return value.isdecimal() and int(value) <= 5
 
 
 # Годится ли строка как число писем (целое от единицы)
 def is_count(value):
-    return value.isdigit() and int(value) > 0
+    return value.isdecimal() and int(value) > 0
 
 
 # Годится ли строка как шаг (целое число, можно с минусом)
 def is_shift(value):
-    return value.removeprefix("-").isdigit()
+    return value.removeprefix("-").isdecimal()
 
 
 # Сдвигает буквы текста на k шагов, прочие знаки не трогает
@@ -44,6 +44,10 @@ def shift_text(text, k):
 class Record:
     # Новое письмо: режим и слово, шаг пока 0
     def __init__(self, mode, text):
+        # Письмом бывает только утаённое (1) или явленное (2); 0 - это выход из меню
+        if mode not in (1, 2):
+            raise ValueError("Режим письма бывает только 1 (утаить) или 2 (явить)")
+
         self.mode = mode
         self.source = text
         self.shift = 0
@@ -77,8 +81,9 @@ class Record:
     def others(self):
         return len(self.source) - self.letters()
 
-    # Есть ли запрос в исходном слове или в результате
+    # Есть ли запрос в исходном слове или в результате; регистр не важен
     def matches(self, query):
+        query = query.lower()
         return query in self.source.lower() or query in self.result.lower()
 
     # Краткий текст письма: то же имя метода есть у History
@@ -99,19 +104,42 @@ class History:
         self.records = []
         self.counts = {"Утаённое": 0, "Явленное": 0, "Не воротили": 0}
 
-    # Читает файл; если его ещё нет, летопись остаётся пустой
+    # Читает файл и возвращает состояние: "ok", "missing" или "broken"
     def load(self):
+        # Повторное чтение начинается с чистой летописи, письма не задваиваются
+        self.records = []
+        self.counts = {"Утаённое": 0, "Явленное": 0, "Не воротили": 0}
+
         try:
             with open(self.filename, "r", encoding="utf-8") as file:
                 data = json.load(file)
-        except FileNotFoundError:
-            return
 
-        self.counts = data["counts"]
-        for item in data["history"]:
-            record = Record(MODE_NAMES.index(item["action"]), item["source"])
-            record.set_shift(str(item["shift"]))
-            self.records.append(record)
+            items = data["history"]
+            counts = data["counts"]
+
+            if not isinstance(items, list) or not isinstance(counts, dict):
+                return "broken"
+            if not {"Утаённое", "Явленное", "Не воротили"} <= counts.keys():
+                return "broken"
+            if not all(isinstance(counts[name], int) for name in self.counts):
+                return "broken"
+
+            loaded = []
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item["source"], str):
+                    return "broken"
+                record = Record(MODE_NAMES.index(item["action"]), item["source"])
+                if not record.set_shift(str(item["shift"])):
+                    return "broken"
+                loaded.append(record)
+        except FileNotFoundError:
+            return "missing"
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, UnicodeDecodeError):
+            return "broken"
+
+        self.records = loaded
+        self.counts = counts
+        return "ok"
 
     # Записывает файл: режим "w" заменяет старое содержимое целиком
     def save(self):
@@ -136,6 +164,10 @@ class History:
     def is_empty(self):
         return len(self.records) == 0
 
+    # Перебор писем без доступа к списку: меню печатает летопись через него
+    def __iter__(self):
+        return iter(self.records)
+
     # Отбирает письма по запросу: проверку делает само письмо
     def search(self, query):
         found = []
@@ -149,6 +181,11 @@ class History:
         shifts = []
         for record in self.records:
             shifts.append(record.shift)
+
+        # Пустая летопись: считать нечего, отдаём пустой итог вместо ошибки
+        if len(shifts) == 0:
+            return None, None, [], 0
+
         return min(shifts), max(shifts), sorted(shifts), len(set(shifts))
 
     # Краткий текст летописи: то же имя метода есть у Record
@@ -179,7 +216,7 @@ class App:
 
         # Пустое письмо в историю не попадает
         if text == "":
-            print("Остолоп! Пустое слово не воротишь — молви письмо.")
+            print("Остолоп! Пустое слово не воротишь - давай, как подобает.")
             self.history.skip()
             return False
 
@@ -191,7 +228,7 @@ class App:
             return False
 
         print(f"{record.action()}: {record.result}")
-        print(f"Ворочено буквиц: {record.letters()}, а прочей мелочи не тронуто: {record.others()}")
+        print(f"Буквиц ворочено: {record.letters()}, прочей мелочи не тронуто: {record.others()}")
         self.history.add(record)
         return True
 
@@ -203,7 +240,7 @@ class App:
             if self.run_letter(mode):
                 done += 1
 
-        print(f"А как сочли: ворочено: {done} из {n}, а {n - done} не воротили — лежат, аки камни в омуте.")
+        print(f"А как сочли: ворочено {done} из {n}, а {n - done} не воротили - лежат, аки камни в омуте.")
 
     # Пункт меню 3: летопись, шаги и счётчики
     def show_history(self):
@@ -212,7 +249,7 @@ class App:
             return
 
         print(self.history.short())
-        self.print_records(self.history.records)
+        self.print_records(self.history)
 
         smallest, largest, sorted_shifts, unique_count = self.history.shift_stats()
         print(f"Шагов воротим: от мала {smallest}, до велика {largest}, "
@@ -220,29 +257,29 @@ class App:
         print(f"Шагов всяких: {unique_count}")
         print(self.history.counts_text())
 
-    # Пункт меню 4: поиск по истории без учёта регистра
+    # Пункт меню 4: поиск по истории; регистр не важен - правило в Record.matches
     def run_search(self):
-        query = input("Чего изволишь отыскать в письменах минувшего? ").strip().lower()
+        query = input("Чего изволишь отыскать в письменах минувшего? ").strip()
 
         if query == "":
-            print("Остолоп! Пустое слово не сыщешь — молви, чего искать")
+            print("Остолоп! Пустое слово не сыщешь - молви, чего искать.")
             return
 
         found = self.history.search(query)
-        print(f"Нашлось, письмо заветное: {len(found)}")
+        print(f"Нашлось писаний: {len(found)}")
         self.print_records(found)
 
     # Пункт меню 5 и выход: пишет в файл и сообщает об этом
     def run_save(self):
         self.history.save()
-        print(f"Схоронено в {self.history.filename}. {self.history.short()}")
+        print(f"Внесено в летопись {self.history.filename}. {self.history.short()}")
 
     # Спрашивает «да» или «нет», пока не ответят ясно, и возвращает ответ
     def ask_answer(self):
         answer = input("Продолжим воротить буковки, али откланяемся? (да / нет): ").strip().lower()
 
         while answer not in ("да", "нет"):
-            print("Смутьян! Молви ясно: «да» али «нет» — иных речей не разумею.")
+            print("Смутьян! Молви ясно: «да» али «нет» - иных речей не разумею.")
             answer = input("Продолжим воротить буковки, али откланяемся? (да / нет): ").strip().lower()
 
         return answer
@@ -251,16 +288,22 @@ class App:
     def run(self):
         print("=== Тайнопись: шифр Цезаря ===")
 
-        self.history.load()
-        print(f"Поднято из {self.history.filename}. {self.history.short()}")
+        status = self.history.load()
+
+        if status == "ok":
+            print(f"Летопись из {self.history.filename} прочитана. {self.history.short()}")
+        elif status == "missing":
+            print(f"Летопись в {self.history.filename} не сыскана. От сего часа пишем новую летопись.")
+        else:
+            print(f"Летопись в {self.history.filename} попорчена. От сего часа пишем новую летопись.")
 
         while True:
             print()
-            print("1 - утаить, 2 - явить, 3 - летопись, 4 - отыскать, 5 - схоронить, 0 - откланяться")
+            print("1 - утаить, 2 - явить, 3 - летопись, 4 - отыскать, 5 - внести в летопись, 0 - откланяться")
             mode_str = input("Чего изволишь, добрый молодец? ").strip()
 
             if not is_mode(mode_str):
-                print("Смутьян! Вразуми: мне цифирью молви, числом от ничто (0) до пяти (5)")
+                print("Смутьян! Вразуми: мне цифирью молви, числом от ничто (0) до пяти (5).")
                 continue
 
             mode = int(mode_str)
@@ -287,13 +330,14 @@ class App:
             self.run_series(mode, int(n_str))
 
             if self.ask_answer() != "да":
-                print("Бывай, добрый молодец. Шаг береги аки зеницу ока — потеряешь, сам себя не прочтёшь.")
+                print("Бывай, добрый молодец. Шаг береги аки зеницу ока - потеряешь, сам себя не прочтёшь.")
                 break
 
         # Оба выхода (0 и «нет») приходят сюда, поэтому письма не потеряются
         self.run_save()
-        print("Коли не сработало — то не моя вина, а Цезаря окаянного.")
+        print("Коли не сработало - то не моя вина, а Цезаря окаянного.")
 
 
-app = App(DATA_FILE)
-app.run()
+if __name__ == "__main__":
+    app = App(DATA_FILE)
+    app.run()
