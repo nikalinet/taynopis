@@ -1,5 +1,4 @@
 # «Тайнопись» - этап 7: файл
-# Летопись и счётчики хранятся в файле: читаются при старте, пишутся по пункту 5 и при выходе.
 
 import json
 
@@ -13,37 +12,51 @@ MODE_NAMES = ("Откланяться", "Утаённое", "Явленное")
 DATA_FILE = "letopis.json"
 
 
-# ---------- Файл: чтение и запись, без print и input ----------
+def empty_counts():
+    return {"Утаённое": 0, "Явленное": 0, "Не воротили": 0}
 
-# Читает летопись и счётчики; если файла ещё нет, возвращает пустую летопись
+
 def load_data(filename):
     try:
         with open(filename, "r", encoding="utf-8") as file:
             data = json.load(file)
+
+        history = data["history"]
+        counts = data["counts"]
+
+        if not isinstance(history, list) or not isinstance(counts, dict):
+            raise TypeError
+        if not {"Утаённое", "Явленное", "Не воротили"} <= counts.keys():
+            raise KeyError
+
+        return history, counts, "ok"
     except FileNotFoundError:
-        return [], {"Утаённое": 0, "Явленное": 0, "Не воротили": 0}
-    return data["history"], data["counts"]
+        return [], empty_counts(), "missing"
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return [], empty_counts(), "broken"
 
 
 # Записывает летопись и счётчики: режим "w" заменяет старое содержимое целиком
+# и создаёт файл, если его ещё нет
 def save_data(filename, history, counts):
     data = {"history": history, "counts": counts}
     with open(filename, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
 
 
-#Логика
+# Логика
+
 
 def is_mode(value):
-    return value.isdigit() and int(value) <= 5
+    return value.isdecimal() and int(value) <= 5
 
 
 def is_count(value):
-    return value.isdigit() and int(value) > 0
+    return value.isdecimal() and int(value) > 0
 
 
 def is_shift(value):
-    return value.removeprefix("-").isdigit()
+    return value.removeprefix("-").isdecimal()
 
 
 def shift_text(text, k):
@@ -65,10 +78,18 @@ def make_record(mode, text, shift):
         k = shift
     else:
         k = -shift
-    return {"action": MODE_NAMES[mode], "source": text, "shift": shift, "result": shift_text(text, k)}
+    return {
+        "action": MODE_NAMES[mode],
+        "source": text,
+        "shift": shift,
+        "result": shift_text(text, k),
+    }
 
 
 def shift_stats(history):
+    if not history:
+        return None, None, [], 0
+
     shifts = []
     for record in history:
         shifts.append(record["shift"])
@@ -89,6 +110,7 @@ def format_record(record):
 
 # Интерфейс
 
+
 def print_records(records):
     for record in records:
         print(format_record(record))
@@ -98,7 +120,7 @@ def run_letter(mode, history, counts):
     text = input("Молви слово тайное: ").strip()
 
     if text == "":
-        print("Остолоп! Пустое слово не воротишь — молви письмо.")
+        print("Остолоп! Пустое слово не воротишь - молви письмо.")
         counts["Не воротили"] += 1
         return False
 
@@ -108,11 +130,12 @@ def run_letter(mode, history, counts):
         print("Беда: шаг не цельный, письмо сгинуло, аки камень в омуте.")
         counts["Не воротили"] += 1
         return False
-
     record = make_record(mode, text, int(shift_str))
     print(f"{record['action']}: {record['result']}")
     letters = count_letters(text)
-    print(f"Ворочено буквиц: {letters}, а прочей мелочи не тронуто: {len(text) - letters}")
+    print(
+        f"Ворочено буквиц: {letters}, а прочей мелочи не тронуто: {len(text) - letters}"
+    )
 
     history.append(record)
     counts[record["action"]] += 1
@@ -126,7 +149,9 @@ def run_series(mode, n, history, counts):
         if run_letter(mode, history, counts):
             done += 1
 
-    print(f"А как сочли: ворочено: {done} из {n}, а {n - done} не воротили — лежат, аки камни в омуте.")
+    print(
+        f"А как сочли: ворочено: {done} из {n}, а {n - done} не воротили - лежат, аки камни в омуте."
+    )
 
 
 def show_history(history, counts):
@@ -138,17 +163,21 @@ def show_history(history, counts):
     print_records(history)
 
     smallest, largest, sorted_shifts, unique_count = shift_stats(history)
-    print(f"Шагов воротим: от мала {smallest}, до велика {largest}, "
-          f"аки ручей от истока к устью {sorted_shifts}")
+    print(
+        f"Шагов воротим: от мала {smallest}, до велика {largest}, "
+        f"аки ручей от истока к устью {sorted_shifts}"
+    )
     print(f"Шагов всяких: {unique_count}")
-    print(f"Утаённое: {counts['Утаённое']}, явленное: {counts['Явленное']}, не воротили: {counts['Не воротили']}")
+    print(
+        f"Утаённое: {counts['Утаённое']}, явленное: {counts['Явленное']}, не воротили: {counts['Не воротили']}"
+    )
 
 
 def run_search(history):
     query = input("Чего изволишь отыскать в письменах минувшего? ").strip().lower()
 
     if query == "":
-        print("Остолоп! Пустое слово не сыщешь — молви, чего искать")
+        print("Остолоп! Пустое слово не сыщешь - молви, чего искать")
         return
 
     found = search_history(history, query)
@@ -158,15 +187,23 @@ def run_search(history):
 
 def run_save(history, counts):
     save_data(DATA_FILE, history, counts)
-    print(f"Схоронено в {DATA_FILE}. Сказаний писано: {len(history)}")
+    print(f"Летопись в {DATA_FILE} запечатлена. Сказаний в ней: {len(history)}")
 
 
 def ask_answer():
-    answer = input("Продолжим воротить буковки, али откланяемся? (да / нет): ").strip().lower()
+    answer = (
+        input("Продолжим воротить буковки, али откланяемся? (да / нет): ")
+        .strip()
+        .lower()
+    )
 
     while answer not in ("да", "нет"):
-        print("Смутьян! Молви ясно: «да» али «нет» — иных речей не разумею.")
-        answer = input("Продолжим воротить буковки, али откланяемся? (да / нет): ").strip().lower()
+        print("Смутьян! Молви ясно: «да» али «нет» - иных речей не разумею.")
+        answer = (
+            input("Продолжим воротить буковки, али откланяемся? (да / нет): ")
+            .strip()
+            .lower()
+        )
 
     return answer
 
@@ -174,22 +211,34 @@ def ask_answer():
 def main():
     print("=== Тайнопись: шифр Цезаря ===")
 
-    history, counts = load_data(DATA_FILE)
-    print(f"Поднято из {DATA_FILE}. Сказаний писано: {len(history)}")
+    history, counts, status = load_data(DATA_FILE)
+
+    if status == "ok":
+        print(f"Летопись из {DATA_FILE} прочитана. Сказаний в ней: {len(history)}")
+    elif status == "missing":
+        print(f"Летопись в {DATA_FILE} не сыскана. Начинаем с пустой истории.")
+    else:
+        print(f"Летопись в {DATA_FILE} попорчена. Начинаем с пустой истории.")
 
     while True:
         print()
-        print("1 - утаить, 2 - явить, 3 - летопись, 4 - отыскать, 5 - схоронить, 0 - откланяться")
+        print(
+            "1 - утаить, 2 - явить, 3 - летопись, 4 - отыскать, 5 - запечатлеть, 0 - откланяться"
+        )
         mode_str = input("Чего изволишь, добрый молодец? ").strip()
 
         if not is_mode(mode_str):
-            print("Смутьян! Вразуми: мне цифирью молви, числом от ничто (0) до пяти (5)")
+            print(
+                "Смутьян! Вразуми: мне цифирью молви, числом от ничто (0) до пяти (5)"
+            )
             continue
 
         mode = int(mode_str)
 
         if mode == 0:
-            print("Слово молвлено, дело сделано. Кланяюсь да ухожу, аки гость незваный.")
+            print(
+                "Слово молвлено, дело сделано. Кланяюсь да ухожу, аки гость незваный."
+            )
             break
         elif mode == 3:
             show_history(history, counts)
@@ -204,17 +253,22 @@ def main():
         n_str = input("Сколько писем изволишь воротить? ").strip()
 
         if not is_count(n_str):
-            print("Горе-писарь! Молви, сколько писем воротить, числом целым от единицы.")
+            print(
+                "Горе-писарь! Молви, сколько писем воротить, числом целым от единицы."
+            )
             continue
 
         run_series(mode, int(n_str), history, counts)
 
         if ask_answer() != "да":
-            print("Бывай, добрый молодец. Шаг береги аки зеницу ока — потеряешь, сам себя не прочтёшь.")
+            print(
+                "Бывай, добрый молодец. Шаг береги аки зеницу ока - потеряешь, сам себя не прочтёшь."
+            )
             break
 
     run_save(history, counts)
-    print("Коли не сработало — то не моя вина, а Цезаря окаянного.")
+    print("Коли не сработало - то не моя вина, а Цезаря окаянного.")
 
 
-main()
+if __name__ == "__main__":
+    main()
